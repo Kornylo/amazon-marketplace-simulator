@@ -1,0 +1,48 @@
+version: '3.8'
+services:
+  amazon-simulator:
+    build: .
+    ports:
+      - "4001:4001"
+    environment:
+      - PORT=4001
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=simulator
+      - DB_PASSWORD=simulator
+      - DB_NAME=amazon_simulator
+      - REDIS_URL=redis://redis:6379
+      - MOCK_UPDATE_INSTANT_MODE=true
+      - MOCK_UPDATE_PROCESSING_DELAY_MS=3000
+      - MOCK_SELLER_CENTRAL_REVIEW_DELAY_MS=3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: simulator
+      POSTGRES_PASSWORD: simulator
+      POSTGRES_DB: amazon_simulator
+    volumes:
+      - simulator_pg_data:/var/lib/postgresql/data
+      - ./migrations/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U simulator -d amazon_simulator"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  simulator_pg_data:
