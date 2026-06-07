@@ -21,9 +21,11 @@ export class ListingsService {
     includedData?: string,
   ): Promise<any> {
     const rows = await this.db.queryMany(
-      `SELECT * FROM sim_listings
-       WHERE seller_id = $1 AND marketplace_id = $2
-       ORDER BY sku`,
+      `SELECT l.*, c.dimensions AS catalog_dimensions
+         FROM sim_listings l
+         LEFT JOIN sim_catalog c ON c.asin = l.asin
+        WHERE l.seller_id = $1 AND l.marketplace_id = $2
+        ORDER BY l.sku`,
       [sellerId, marketplaceId],
     );
 
@@ -38,8 +40,10 @@ export class ListingsService {
     includedData?: string,
   ): Promise<any> {
     const row = await this.db.queryOne(
-      `SELECT * FROM sim_listings
-       WHERE seller_id = $1 AND sku = $2 AND marketplace_id = $3`,
+      `SELECT l.*, c.dimensions AS catalog_dimensions
+         FROM sim_listings l
+         LEFT JOIN sim_catalog c ON c.asin = l.asin
+        WHERE l.seller_id = $1 AND l.sku = $2 AND l.marketplace_id = $3`,
       [sellerId, sku, marketplaceId],
     );
 
@@ -219,7 +223,25 @@ export class ListingsService {
     }
 
     if (include.includes('attributes')) {
-      result.attributes = row.attributes || {};
+      const baseAttrs = row.attributes || {};
+      // Merge catalog dimensions into attributes so the backend can detect FBA fee changes.
+      // sim_catalog stores { length, width, height, weight } at the top level;
+      // the backend FBA service expects { dimensions: { package: { length, width, height, weight } } }.
+      const catalogDims = row.catalog_dimensions as Record<string, any> | null;
+      const dimensionAttrs: Record<string, any> = {};
+      if (catalogDims) {
+        const unitMap: Record<string, string> = { IN: 'inches', LB: 'pounds', CM: 'centimeters', KG: 'kilograms' };
+        const mapUnit = (u: string) => unitMap[u?.toUpperCase()] ?? u?.toLowerCase() ?? 'inches';
+        dimensionAttrs.dimensions = {
+          package: {
+            length: catalogDims.length ? { value: catalogDims.length.value, unit: mapUnit(catalogDims.length.unit) } : undefined,
+            width:  catalogDims.width  ? { value: catalogDims.width.value,  unit: mapUnit(catalogDims.width.unit)  } : undefined,
+            height: catalogDims.height ? { value: catalogDims.height.value, unit: mapUnit(catalogDims.height.unit) } : undefined,
+            weight: catalogDims.weight ? { value: catalogDims.weight.value, unit: mapUnit(catalogDims.weight.unit) } : undefined,
+          },
+        };
+      }
+      result.attributes = { ...baseAttrs, ...dimensionAttrs };
     }
 
     if (include.includes('offers')) {
